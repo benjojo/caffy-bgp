@@ -87,6 +87,10 @@ func main() {
 				Transport: &api.Transport{
 					LocalAddress: peer.Localaddr,
 				},
+				EbgpMultihop: &api.EbgpMultihop{
+					Enabled:     true,
+					MultihopTtl: 50,
+				},
 			},
 		})
 		s.GrpcReqCh <- req
