@@ -48,7 +48,7 @@ func main() {
 
 	go http.ListenAndServe(*statbindaddr, http.DefaultServeMux)
 
-	log.SetLevel(log.DebugLevel)
+	log.SetLevel(log.InfoLevel)
 
 	s := gobgp.NewBgpServer()
 	go s.Serve()
