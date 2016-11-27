@@ -4,13 +4,13 @@ import (
 	"encoding/json"
 	"expvar"
 	"flag"
+	"fmt"
 	"io/ioutil"
 	"net/http"
 
 	log "github.com/Sirupsen/logrus"
 	api "github.com/osrg/gobgp/api"
-	"github.com/osrg/gobgp/gobgp/cmd"
-	"github.com/osrg/gobgp/packet/bgp"
+	"github.com/osrg/gobgp/config"
 	gobgp "github.com/osrg/gobgp/server"
 	"gopkg.in/redis.v3"
 )
@@ -39,6 +39,7 @@ type BGPPeer struct {
 }
 
 func main() {
+	fmt.Printf("1")
 	bgpUpdates = expvar.NewInt("Updates")
 	bgpWithdraws = expvar.NewInt("Withdraws")
 	flag.Parse()
@@ -47,80 +48,93 @@ func main() {
 	go Publisher()
 
 	go http.ListenAndServe(*statbindaddr, http.DefaultServeMux)
+	fmt.Printf("2")
 
 	log.SetLevel(log.InfoLevel)
 
 	s := gobgp.NewBgpServer()
 	go s.Serve()
 
+	fmt.Printf("3")
+
 	if *enablegrpc {
 		// start grpc api server. this is not mandatory
 		// but you will be able to use `gobgp` cmd with this.
-		g := gobgp.NewGrpcServer(":50051", s.GrpcReqCh)
+		g := api.NewGrpcServer(s, ":50051")
 		go g.Serve()
 	}
 
-	// global configuration
-	req := gobgp.NewGrpcRequest(gobgp.REQ_START_SERVER, "", bgp.RouteFamily(0), &api.StartServerRequest{
-		Global: &api.Global{
-			As:         uint32(*selfasn),
-			RouterId:   *routerid,
-			ListenPort: int32(*bgpport),
+	global := &config.Global{
+		Config: config.GlobalConfig{
+			As:       uint32(*selfasn),
+			RouterId: *routerid,
+			Port:     int32(*bgpport),
 		},
-	})
-	s.GrpcReqCh <- req
-	res := <-req.ResponseCh
-	if err := res.Err(); err != nil {
+	}
+
+	if err := s.Start(global); err != nil {
 		log.Fatal(err)
 	}
+	fmt.Printf("4")
 
 	peers := loadPeerConf()
 
 	for _, peer := range peers {
-		// neighbor configuration
-		req = gobgp.NewGrpcRequest(gobgp.REQ_GRPC_ADD_NEIGHBOR, "", bgp.RouteFamily(0), &api.AddNeighborRequest{
-			Peer: &api.Peer{
-				Conf: &api.PeerConf{
-					NeighborAddress: peer.Peeraddr,
-					PeerAs:          uint32(peer.Peeras),
-				},
-				Transport: &api.Transport{
-					LocalAddress: peer.Localaddr,
-				},
-				EbgpMultihop: &api.EbgpMultihop{
-					Enabled:     true,
-					MultihopTtl: 50,
-				},
+		n := &config.Neighbor{
+			Config: config.NeighborConfig{
+				NeighborAddress: peer.Peeraddr,
+				PeerAs:          uint32(peer.Peeras),
 			},
-		})
-		s.GrpcReqCh <- req
-		res = <-req.ResponseCh
-		if err := res.Err(); err != nil {
+		}
+
+		n.EbgpMultihop.State.Enabled = true
+		n.EbgpMultihop.State.MultihopTtl = 50
+		n.Transport.State.LocalAddress = peer.Localaddr
+		n.ApplyPolicy.State.DefaultExportPolicy = config.DEFAULT_POLICY_TYPE_REJECT_ROUTE
+
+		if err := s.AddNeighbor(n); err != nil {
 			log.Fatal(err)
 		}
+		fmt.Printf("5")
 	}
 
-	// monitor new routes
-	req = gobgp.NewGrpcRequest(gobgp.REQ_MONITOR_RIB, "", bgp.RF_IPv4_UC, &api.Table{
-		Type: api.Resource_GLOBAL,
-	})
-	s.GrpcReqCh <- req
-
-	for res := range req.ResponseCh {
-		p, _ := cmd.ApiStruct2Path(res.Data.(*api.Destination).Paths[0])
-
-		// cmd.ShowRoute(p, false, false, false, true, false)
-		// api.Destination.Prefix
-		b, _ := json.Marshal(p)
-		PublishChan <- string(b)
-		for _, v := range p {
-			if v.IsWithdraw {
-				bgpWithdraws.Add(1)
+	w := s.Watch(gobgp.WatchPostUpdate(true))
+	for {
+		select {
+		case ev := <-w.Event():
+			b, _ := json.Marshal(ev)
+			PublishChan <- string(b)
+			switch msg := ev.(type) {
+			case *gobgp.WatchEventBestPath:
+				for _, path := range msg.PathList {
+					// do something useful
+					fmt.Println(path)
+				}
 			}
-			bgpUpdates.Add(1)
 		}
-
 	}
+
+	// // monitor new routes
+	// req = gobgp.NewGrpcRequest(gobgp.REQ_MONITOR_RIB, "", bgp.RF_IPv4_UC, &api.Table{
+	// 	Type: api.Resource_GLOBAL,
+	// })
+	// s.GrpcReqCh <- req
+
+	// for res := range req.ResponseCh {
+	// 	p, _ := cmd.ApiStruct2Path(res.Data.(*api.Destination).Paths[0])
+
+	// 	// cmd.ShowRoute(p, false, false, false, true, false)
+	// 	// api.Destination.Prefix
+	// 	b, _ := json.Marshal(p)
+	// 	PublishChan <- string(b)
+	// 	for _, v := range p {
+	// 		if v.IsWithdraw {
+	// 			bgpWithdraws.Add(1)
+	// 		}
+	// 		bgpUpdates.Add(1)
+	// 	}
+
+	// }
 }
 
 func Publisher() {
