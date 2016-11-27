@@ -92,6 +92,19 @@ func main() {
 		n.Transport.State.LocalAddress = peer.Localaddr
 		n.ApplyPolicy.State.DefaultExportPolicy = config.DEFAULT_POLICY_TYPE_REJECT_ROUTE
 
+		n.EbgpMultihop.Config = config.EbgpMultihopConfig{
+			Enabled:     true,
+			MultihopTtl: 50,
+		}
+
+		n.Transport.Config = config.TransportConfig{
+			LocalAddress: peer.Localaddr,
+		}
+
+		n.ApplyPolicy.Config = config.ApplyPolicyConfig{
+			DefaultExportPolicy: config.DEFAULT_POLICY_TYPE_REJECT_ROUTE,
+		}
+
 		if err := s.AddNeighbor(n); err != nil {
 			log.Fatal(err)
 		}
