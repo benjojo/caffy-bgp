@@ -39,7 +39,6 @@ type BGPPeer struct {
 }
 
 func main() {
-	fmt.Printf("1")
 	bgpUpdates = expvar.NewInt("Updates")
 	bgpWithdraws = expvar.NewInt("Withdraws")
 	flag.Parse()
@@ -48,14 +47,12 @@ func main() {
 	go Publisher()
 
 	go http.ListenAndServe(*statbindaddr, http.DefaultServeMux)
-	fmt.Printf("2")
 
 	log.SetLevel(log.InfoLevel)
 
 	s := gobgp.NewBgpServer()
 	go s.Serve()
 
-	fmt.Printf("3")
 
 	if *enablegrpc {
 		// start grpc api server. this is not mandatory
@@ -75,7 +72,6 @@ func main() {
 	if err := s.Start(global); err != nil {
 		log.Fatal(err)
 	}
-	fmt.Printf("4")
 
 	peers := loadPeerConf()
 
@@ -108,7 +104,6 @@ func main() {
 		if err := s.AddNeighbor(n); err != nil {
 			log.Fatal(err)
 		}
-		fmt.Printf("5")
 	}
 
 	w := s.Watch(gobgp.WatchPostUpdate(true))
@@ -126,28 +121,6 @@ func main() {
 			}
 		}
 	}
-
-	// // monitor new routes
-	// req = gobgp.NewGrpcRequest(gobgp.REQ_MONITOR_RIB, "", bgp.RF_IPv4_UC, &api.Table{
-	// 	Type: api.Resource_GLOBAL,
-	// })
-	// s.GrpcReqCh <- req
-
-	// for res := range req.ResponseCh {
-	// 	p, _ := cmd.ApiStruct2Path(res.Data.(*api.Destination).Paths[0])
-
-	// 	// cmd.ShowRoute(p, false, false, false, true, false)
-	// 	// api.Destination.Prefix
-	// 	b, _ := json.Marshal(p)
-	// 	PublishChan <- string(b)
-	// 	for _, v := range p {
-	// 		if v.IsWithdraw {
-	// 			bgpWithdraws.Add(1)
-	// 		}
-	// 		bgpUpdates.Add(1)
-	// 	}
-
-	// }
 }
 
 func Publisher() {
